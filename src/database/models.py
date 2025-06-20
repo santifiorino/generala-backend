@@ -70,6 +70,7 @@ class Category(str, Enum):
     POKER = "Poker"
     GENERALA = "Generala"
     GENERALA_DOBLE = "Generala Doble"
+    GENERALA_SERVIDA = "Generala Servida"
 
 possible_scores = {
     Category.ONE: [0, 1, 2, 3, 4, 5],

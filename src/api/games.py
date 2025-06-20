@@ -179,8 +179,14 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     # Validate player exists, is in game, and score doesn't exist
     validate_player_exists(player_id, session)
     validate_player_in_game(game_id, player_id, session)
-    validate_score_not_exists(game_id, player_id, request.category, session)
+    validate_score_not_exists(game_id, player_id, request.category, session)        
     
+    if request.category == models.Category.GENERALA_SERVIDA:
+        game.generala_servida = True
+        game.winner_id = player_id
+        logger.info(f"Generala Servida achieved! Player {player_id} wins game {game_id}.")
+        return CreateScoreResponse(winner_id=player_id)
+
     new_score = models.Score(
         category=request.category,
         score=request.score,
