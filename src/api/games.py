@@ -23,6 +23,13 @@ class PlayerRequest(BaseModel):
 class CreateGameRequest(BaseModel):
     players: List[PlayerRequest]
 
+class ScoreResponse(BaseModel):
+    id: int
+    category: models.Category
+    score: int
+    player_id: int
+    created_at: str
+
 class GameResponse(BaseModel):
     id: int
     turn: int
@@ -30,12 +37,13 @@ class GameResponse(BaseModel):
     created_at: str
     winner_id: int | None
     players: List[Dict[str, Any]]
+    scores: List[ScoreResponse]
 
 class CreateScoreRequest(BaseModel):
     category: models.Category
     score: int
 
-class ScoreResponse(BaseModel):
+class CreateScoreResponse(BaseModel):
     winner_id: int | None = None
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -125,6 +133,18 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         
         players_response.append(player_data)
 
+    sorted_scores = sorted(game.scores, key=lambda s: s.created_at)
+    scores_response = [
+        ScoreResponse(
+            id=score.id,
+            category=score.category,
+            score=score.score,
+            player_id=score.player_id,
+            created_at=score.created_at.isoformat()
+        )
+        for score in sorted_scores
+    ]
+
     logger.info(f"Successfully fetched game with ID: {game_id}")
     return GameResponse(
         id=game.id,
@@ -132,11 +152,12 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         turn=game.turn,
         winner_id=game.winner_id,
         generala_servida=game.generala_servida,
-        created_at=game.created_at.isoformat()
+        created_at=game.created_at.isoformat(),
+        scores=scores_response
     )
 
 @router.post("/{game_id}/players/{player_id}/scores", status_code=status.HTTP_201_CREATED)
-async def create_score(game_id: int, player_id: int, request: CreateScoreRequest, session: Session = Depends(get_session)):
+async def create_score(game_id: int, player_id: int, request: CreateScoreRequest, session: Session = Depends(get_session)) -> CreateScoreResponse:
     """Create a new score for a player in a game"""
     logger.info(f"Attempting to create score for player {player_id} in game {game_id} with category '{request.category}' and score {request.score}.")
 
@@ -205,7 +226,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     
     logger.info(f"Score created for player {player_id} in game {game_id}")
 
-    return ScoreResponse(
+    return CreateScoreResponse(
         winner_id=winner_id
     )
 

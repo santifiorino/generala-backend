@@ -90,6 +90,7 @@ class Score(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category: Category = Field(description="Scoring category")
     score: int = Field(default=0, ge=0, description="Points scored in the category")
+    created_at: datetime = Field(default_factory=datetime.now, description="Timestamp when the score was created")
     game_id: int = Field(foreign_key="game.id", description="ID of the game")
     player_id: int = Field(foreign_key="player.id", description="ID of the player")
     
