@@ -23,6 +23,9 @@ class PlayerRequest(BaseModel):
 class CreateGameRequest(BaseModel):
     players: List[PlayerRequest]
 
+class PatchGameRequest(BaseModel):
+    winnerId: int
+
 class ScoreResponse(BaseModel):
     id: int
     category: models.Category
@@ -44,7 +47,7 @@ class CreateScoreRequest(BaseModel):
     score: int
 
 class CreateScoreResponse(BaseModel):
-    winnerId: int | None = None
+    winnerId: List[int] = []
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_game(request: CreateGameRequest, session: Session = Depends(get_session)):
@@ -158,6 +161,32 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         scores=scores_response
     )
 
+@router.patch("/{game_id}", status_code=status.HTTP_200_OK)
+async def set_game_winner(game_id: int, request: PatchGameRequest, session: Session = Depends(get_session)):
+    """Set the winner of a game, usually to resolve a tie"""
+    logger.info(f"Attempting to set winner for game {game_id} to player {request.winnerId}.")
+
+    # Validate game exists
+    game = session.exec(
+        select(models.Game).where(models.Game.id == game_id)
+    ).first()
+    if not game:
+        logger.warning(f"Setting winner failed: game with ID {game_id} not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Game with ID {game_id} not found"
+        )
+
+    # Validate player exists and is in game
+    validate_player_exists(request.winnerId, session)
+    validate_player_in_game(game_id, request.winnerId, session)
+
+    game.winner_id = request.winnerId
+    
+    logger.info(f"Successfully set winner for game {game_id} to player {request.winnerId}.")
+
+    return {"message": f"Winner for game {game_id} set to player {request.winnerId}"}
+
 @router.post("/{game_id}/players/{player_id}/scores", status_code=status.HTTP_201_CREATED)
 async def create_score(game_id: int, player_id: int, request: CreateScoreRequest, session: Session = Depends(get_session)) -> CreateScoreResponse:
     """Create a new score for a player in a game"""
@@ -187,7 +216,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
         game.generala_servida = True
         game.winner_id = player_id
         logger.info(f"Generala Servida achieved! Player {player_id} wins game {game_id}.")
-        return CreateScoreResponse(winnerId=player_id)
+        return CreateScoreResponse(winnerId=[player_id])
 
     new_score = models.Score(
         category=request.category,
@@ -204,7 +233,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     total_categories = len(possible_scores)
     
     # Check if this is the last turn (all players have filled all categories)
-    winner_id = None
+    winners = []
     if game.turn >= (total_players * (total_categories - 1)) - 1:
         # Get all scores for all players in this game in one query
         session.flush()
@@ -220,22 +249,21 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
                 player_scores[score.player_id] = 0
             player_scores[score.player_id] += score.score
         
-        # Find winner
-        max_score = 0
-        for p_id, total_score in player_scores.items():
-            if total_score > max_score:
-                max_score = total_score
-                winner_id = p_id
-
-        game.winner_id = winner_id
-        logger.info(f"Game {game_id} has ended. Winner is player {winner_id}.")
+        # Check if there is a tie at the max score
+        max_score = max(player_scores.values())
+        winners = [p_id for p_id, score in player_scores.items() if score == max_score]
+        if len(winners) > 1:
+            logger.info(f"There is a tie between players {winners}. Waiting for frontend to decide the winner.")
+        else:
+            game.winner_id = winners[0]
+            logger.info(f"Game {game_id} has ended. Winner is player {winners[0]}.")
 
     game.turn += 1
     
     logger.info(f"Score created for player {player_id} in game {game_id}")
 
     return CreateScoreResponse(
-        winnerId=winner_id
+        winnerId=winners if 'winners' in locals() else []
     )
 
 @router.delete("/{game_id}/players/{player_id}/scores/{category}", status_code=status.HTTP_204_NO_CONTENT)
