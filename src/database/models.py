@@ -84,6 +84,7 @@ possible_scores = {
     Category.POKER: [0, 40, 45],
     Category.GENERALA: [0, 50],
     Category.GENERALA_DOBLE: [0, 100],
+    Category.GENERALA_SERVIDA: [0],
 }
 
 class Score(SQLModel, table=True):
