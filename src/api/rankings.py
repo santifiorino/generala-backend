@@ -12,27 +12,27 @@ from src.database import models
 from src.database.database import get_session
 from src.logging_config import logger
 
-router = APIRouter(prefix="/ranking", tags=["ranking"], dependencies=[Depends(verify_token)])
+router = APIRouter(prefix="/rankings", tags=["rankings"], dependencies=[Depends(verify_token)])
 
-class PlayerRankingResponse(BaseModel):
+class ScoreRankingResponse(BaseModel):
     id: int
     name: str
-    max_score: int
+    maxScore: int
 
-class PlayerWinsResponse(BaseModel):
+class WinsRankingResponse(BaseModel):
     id: int
     name: str
     wins: int
 
-class GeneralaServidaResponse(BaseModel):
+class GeneralasServidasResponses(BaseModel):
     id: int
-    winner_name: str
-    created_at: datetime
+    winnerName: str
+    createdAt: datetime
 
-class RankingResponse(BaseModel):
-    wins: List[PlayerWinsResponse]
-    score: List[PlayerRankingResponse]
-    generalas_servidas: List[GeneralaServidaResponse]
+class RankingsResponse(BaseModel):
+    wins: List[WinsRankingResponse]
+    scores: List[ScoreRankingResponse]
+    generalasServidas: List[GeneralasServidasResponses]
 
 def get_wins_ranking(session: Session) -> List[dict]:
     """Get players ranked by number of wins, sorted from high to low"""
@@ -85,7 +85,7 @@ def get_wins_ranking(session: Session) -> List[dict]:
         for id, name, wins in results
     ]
 
-def get_score_ranking(session: Session) -> List[dict]:
+def get_scores_ranking(session: Session) -> List[dict]:
     """Get players ranked by max total score in a single game, sorted from high to low"""
     logger.info("Fetching score ranking")
 
@@ -112,7 +112,7 @@ def get_score_ranking(session: Session) -> List[dict]:
     )
 
     # Main query to find the max score for each player
-    score_ranking_query = (
+    score_rankings_query = (
         select(
             models.Player.id,
             models.Player.name,
@@ -123,14 +123,14 @@ def get_score_ranking(session: Session) -> List[dict]:
         .order_by(func.max(subquery.c.total_score).desc())
     )
     
-    results = session.exec(score_ranking_query).all()
+    results = session.exec(score_rankings_query).all()
     logger.info(f"Found {len(results)} players for score ranking.")
     
     return [
         {
             "id": id,
             "name": name,
-            "max_score": max_score if max_score is not None else 0
+            "maxScore": max_score if max_score is not None else 0
         }
         for id, name, max_score in results
     ]
@@ -154,32 +154,32 @@ def get_generalas_servidas(session: Session) -> List[dict]:
         .options(selectinload(models.Game.winner))
         .join(player_count_sq, models.Game.id == player_count_sq.c.game_id)
         .where(models.Game.generala_servida == True)
-        .order_by(models.Game.created_at.desc())
+        .order_by(models.Game.created_at.asc())
     ).all()
     
     logger.info(f"Found {len(games)} games with generala servida.")
     return [
         {
             "id": game.id,
-            "winner_name": game.winner.name if game.winner else "N/A",
-            "created_at": game.created_at
+            "winnerName": game.winner.name if game.winner else "N/A",
+            "createdAt": game.created_at
         }
         for game in games
     ]
 
-@router.get("", response_model=RankingResponse)
-async def get_ranking(session: Session = Depends(get_session)):
+@router.get("", response_model=RankingsResponse)
+async def get_rankings(session: Session = Depends(get_session)):
     """Get the complete ranking including wins, scores, and generalas servidas"""
     logger.info("Fetching complete ranking...")
     
     wins_ranking = get_wins_ranking(session)
-    score_ranking = get_score_ranking(session)
+    scores_ranking = get_scores_ranking(session)
     generalas_servidas = get_generalas_servidas(session)
     
     logger.info("Successfully fetched all rankings.")
     
     return {
         "wins": wins_ranking,
-        "score": score_ranking,
-        "generalas_servidas": generalas_servidas
+        "scores": scores_ranking,
+        "generalasServidas": generalas_servidas
     }

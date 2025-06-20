@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from src.api.errors import http_exception_handler, sqlalchemy_exception_handler
 from src.api.games import router as games_router
 from src.api.players import router as players_router
-from src.api.ranking import router as ranking_router
+from src.api.rankings import router as rankings_router
 from src.config import settings
 from src.database import models  # Import models to register them with SQLModel
 from src.database.database import create_db_and_tables, get_session
@@ -36,7 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(games_router)
-app.include_router(ranking_router)
+app.include_router(rankings_router)
 app.include_router(players_router)
 
 @app.middleware("http")

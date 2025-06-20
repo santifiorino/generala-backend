@@ -27,15 +27,15 @@ class ScoreResponse(BaseModel):
     id: int
     category: models.Category
     score: int
-    player_id: int
-    created_at: str
+    playerId: int
+    createdAt: str
 
 class GameResponse(BaseModel):
     id: int
     turn: int
-    generala_servida: bool
-    created_at: str
-    winner_id: int | None
+    generalaServida: bool
+    createdAt: str
+    winnerId: int | None
     players: List[Dict[str, Any]]
     scores: List[ScoreResponse]
 
@@ -44,7 +44,7 @@ class CreateScoreRequest(BaseModel):
     score: int
 
 class CreateScoreResponse(BaseModel):
-    winner_id: int | None = None
+    winnerId: int | None = None
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_game(request: CreateGameRequest, session: Session = Depends(get_session)):
@@ -133,14 +133,16 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         
         players_response.append(player_data)
 
+    players_response = sorted(players_response, key=lambda p: p["order"])
+
     sorted_scores = sorted(game.scores, key=lambda s: s.created_at)
     scores_response = [
         ScoreResponse(
             id=score.id,
             category=score.category,
             score=score.score,
-            player_id=score.player_id,
-            created_at=score.created_at.isoformat()
+            playerId=score.player_id,
+            createdAt=score.created_at.isoformat()
         )
         for score in sorted_scores
     ]
@@ -150,9 +152,9 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         id=game.id,
         players=players_response,
         turn=game.turn,
-        winner_id=game.winner_id,
-        generala_servida=game.generala_servida,
-        created_at=game.created_at.isoformat(),
+        winnerId=game.winner_id,
+        generalaServida=game.generala_servida,
+        createdAt=game.created_at.isoformat(),
         scores=scores_response
     )
 
@@ -185,7 +187,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
         game.generala_servida = True
         game.winner_id = player_id
         logger.info(f"Generala Servida achieved! Player {player_id} wins game {game_id}.")
-        return CreateScoreResponse(winner_id=player_id)
+        return CreateScoreResponse(winnerId=player_id)
 
     new_score = models.Score(
         category=request.category,
@@ -203,7 +205,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     
     # Check if this is the last turn (all players have filled all categories)
     winner_id = None
-    if game.turn >= (total_players * total_categories) - 1:
+    if game.turn >= (total_players * (total_categories - 1)) - 1:
         # Get all scores for all players in this game in one query
         session.flush()
         all_scores = session.exec(
@@ -233,7 +235,7 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     logger.info(f"Score created for player {player_id} in game {game_id}")
 
     return CreateScoreResponse(
-        winner_id=winner_id
+        winnerId=winner_id
     )
 
 @router.delete("/{game_id}/players/{player_id}/scores/{category}", status_code=status.HTTP_204_NO_CONTENT)
