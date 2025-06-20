@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Generala API"
 
+    # Authentication settings
+    TOKEN: str | None = None
+
     # CORS settings
     CORS_ORIGINS: list[str] = ["*"]
 

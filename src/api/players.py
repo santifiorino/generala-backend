@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from src.api.validation import verify_token
 from src.database import models
 from src.database.database import get_session
 from src.logging_config import logger
 
-router = APIRouter(prefix="/players", tags=["players"])
+router = APIRouter(prefix="/players", tags=["players"], dependencies=[Depends(verify_token)])
 
 
 class PlayerResponse(BaseModel):

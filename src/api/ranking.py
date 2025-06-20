@@ -7,11 +7,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import case
 from sqlmodel import Session, func, select
 
+from src.api.validation import verify_token
 from src.database import models
 from src.database.database import get_session
 from src.logging_config import logger
 
-router = APIRouter(prefix="/ranking", tags=["ranking"])
+router = APIRouter(prefix="/ranking", tags=["ranking"], dependencies=[Depends(verify_token)])
 
 class PlayerRankingResponse(BaseModel):
     id: int

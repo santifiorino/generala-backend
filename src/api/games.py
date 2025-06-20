@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
-from src.api.validation import (validate_category, validate_player_exists,
+from src.api.validation import (verify_token, validate_category, validate_player_exists,
                                 validate_player_in_game, validate_score,
                                 validate_score_not_exists)
 from src.database import models
@@ -13,7 +13,7 @@ from src.database.database import get_session
 from src.database.models import possible_scores
 from src.logging_config import logger
 
-router = APIRouter(prefix="/games", tags=["games"])
+router = APIRouter(prefix="/games", tags=["games"], dependencies=[Depends(verify_token)])
 
 # Request and Response models
 class PlayerRequest(BaseModel):

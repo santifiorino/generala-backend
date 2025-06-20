@@ -1,8 +1,35 @@
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Header
 from sqlmodel import Session, select
 
+from src.config import settings
 from src.database import models
 from src.database.models import Category, possible_scores
+
+
+def verify_token(authorization: str | None = Header(None)):
+    """
+    Verifies if the provided token matches the TOKEN environment variable.
+    
+    Args:
+        authorization: The Authorization header value.
+        
+    Raises:
+        HTTPException: If no token is provided or if the token doesn't match.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header is required"
+        )
+    
+    # Remove 'Bearer ' prefix if present
+    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+    
+    if token != settings.TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
 
 
 # Helper functions for validation

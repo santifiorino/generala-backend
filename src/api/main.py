@@ -56,6 +56,10 @@ async def startup_event():
     logger.info("Starting up Generala API...")
     create_db_and_tables()
 
+@app.get("/", status_code=status.HTTP_200_OK)
+async def root():
+    return {"message": "Generala API is running. For documentation go to /docs."}
+
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health_check():
     """Health check endpoint to verify the API is running."""
