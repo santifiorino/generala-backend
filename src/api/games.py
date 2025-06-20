@@ -49,11 +49,64 @@ class CreateScoreRequest(BaseModel):
 class CreateScoreResponse(BaseModel):
     winnerId: List[int] = []
 
+def _create_game_response(game: models.Game) -> GameResponse:
+    """Helper function to create a GameResponse from a Game model."""
+    scores_by_player = {}
+    for score in game.scores:
+        if score.player_id not in scores_by_player:
+            scores_by_player[score.player_id] = []
+        scores_by_player[score.player_id].append(score)
+
+    players_response = []
+    for game_player in game.players:
+        player = game_player.player
+        player_data = {
+            "id": player.id,
+            "name": player.name,
+            "order": game_player.order,
+            **{category.value: None for category in models.Category}
+        }
+        
+        if player.id in scores_by_player:
+            for score in scores_by_player[player.id]:
+                player_data[score.category.value] = score.score
+        
+        players_response.append(player_data)
+
+    players_response = sorted(players_response, key=lambda p: p["order"])
+
+    sorted_scores = sorted(game.scores, key=lambda s: s.created_at)
+    scores_response = [
+        ScoreResponse(
+            id=score.id,
+            category=score.category,
+            score=score.score,
+            playerId=score.player_id,
+            createdAt=score.created_at.isoformat()
+        )
+        for score in sorted_scores
+    ]
+
+    return GameResponse(
+        id=game.id,
+        players=players_response,
+        turn=game.turn,
+        winnerId=game.winner_id,
+        generalaServida=game.generala_servida,
+        createdAt=game.created_at.isoformat(),
+        scores=scores_response
+    )
+
 @router.get("", response_model=List[GameResponse])
 async def get_games(session: Session = Depends(get_session)):
     """Get all games"""
-    games = session.exec(select(models.Game)).all()
-    return games
+    games = session.exec(
+        select(models.Game).order_by(models.Game.created_at.desc()).options(
+            selectinload(models.Game.players).selectinload(models.GamePlayer.player),
+            selectinload(models.Game.scores)
+        )
+    ).all()
+    return [_create_game_response(game) for game in games]
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_game(request: CreateGameRequest, session: Session = Depends(get_session)):
@@ -117,55 +170,8 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
             detail=f"Game with ID {game_id} not found"
         )
     
-    # Group scores by player_id for efficient lookup
-    scores_by_player = {}
-    for score in game.scores:
-        if score.player_id not in scores_by_player:
-            scores_by_player[score.player_id] = []
-        scores_by_player[score.player_id].append(score)
-
-    players_response = []
-    for game_player in game.players:
-        player = game_player.player
-        # Create player response with scores
-        player_data = {
-            "id": player.id,
-            "name": player.name,
-            "order": game_player.order,
-            **{score: None for score in possible_scores.keys()}
-        }
-        
-        # Add scores to player data
-        if player.id in scores_by_player:
-            for score in scores_by_player[player.id]:
-                player_data[score.category] = score.score
-        
-        players_response.append(player_data)
-
-    players_response = sorted(players_response, key=lambda p: p["order"])
-
-    sorted_scores = sorted(game.scores, key=lambda s: s.created_at)
-    scores_response = [
-        ScoreResponse(
-            id=score.id,
-            category=score.category,
-            score=score.score,
-            playerId=score.player_id,
-            createdAt=score.created_at.isoformat()
-        )
-        for score in sorted_scores
-    ]
-
     logger.info(f"Successfully fetched game with ID: {game_id}")
-    return GameResponse(
-        id=game.id,
-        players=players_response,
-        turn=game.turn,
-        winnerId=game.winner_id,
-        generalaServida=game.generala_servida,
-        createdAt=game.created_at.isoformat(),
-        scores=scores_response
-    )
+    return _create_game_response(game)
 
 @router.patch("/{game_id}", status_code=status.HTTP_200_OK)
 async def set_game_winner(game_id: int, request: PatchGameRequest, session: Session = Depends(get_session)):
