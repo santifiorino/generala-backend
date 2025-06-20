@@ -88,13 +88,24 @@ def get_score_ranking(session: Session) -> List[dict]:
     """Get players ranked by max total score in a single game, sorted from high to low"""
     logger.info("Fetching score ranking")
 
-    # Subquery to calculate total score per game for each player
+    # Subquery to count players per game, only including games with more than 4 players
+    player_count_sq = (
+        select(
+            models.GamePlayer.game_id,
+        )
+        .group_by(models.GamePlayer.game_id)
+        .having(func.count(models.GamePlayer.player_id) > 4)
+        .subquery()
+    )
+
+    # Subquery to calculate total score per game for each player, only for valid games
     subquery = (
         select(
             models.Score.player_id,
             models.Score.game_id,
             func.sum(models.Score.score).label("total_score"),
         )
+        .join(player_count_sq, models.Score.game_id == player_count_sq.c.game_id)
         .group_by(models.Score.player_id, models.Score.game_id)
         .subquery()
     )
@@ -126,11 +137,23 @@ def get_score_ranking(session: Session) -> List[dict]:
 def get_generalas_servidas(session: Session) -> List[dict]:
     """Get all games with generala servida, ordered by creation date"""
     logger.info("Fetching generalas servidas")
+    
+    # Subquery to count players per game, only including games with more than 4 players
+    player_count_sq = (
+        select(
+            models.GamePlayer.game_id,
+        )
+        .group_by(models.GamePlayer.game_id)
+        .having(func.count(models.GamePlayer.player_id) > 4)
+        .subquery()
+    )
+    
     games = session.exec(
         select(models.Game)
         .options(selectinload(models.Game.winner))
+        .join(player_count_sq, models.Game.id == player_count_sq.c.game_id)
         .where(models.Game.generala_servida == True)
-        .order_by(models.Game.created_at.asc())
+        .order_by(models.Game.created_at.desc())
     ).all()
     
     logger.info(f"Found {len(games)} games with generala servida.")
