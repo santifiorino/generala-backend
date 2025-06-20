@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from src.api.errors import http_exception_handler, sqlalchemy_exception_handler
 from src.api.games import router as games_router
+from src.api.players import router as players_router
 from src.api.ranking import router as ranking_router
 from src.config import settings
 from src.database import models  # Import models to register them with SQLModel
@@ -36,6 +37,7 @@ app.add_middleware(
 # Include routers
 app.include_router(games_router)
 app.include_router(ranking_router)
+app.include_router(players_router)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -59,16 +61,3 @@ async def health_check():
     """Health check endpoint to verify the API is running."""
     logger.info("Health check endpoint called")
     return {"message": "Generala API is running"}
-
-@app.get("/test-db", status_code=status.HTTP_200_OK)
-async def test_database(session: Session = Depends(get_session)):
-    """Test endpoint to verify database connection and tables"""
-    # The connection is handled by the get_session dependency.
-    # If it fails, the sqlalchemy_exception_handler will catch it.
-    logger.info("Testing database connection...")
-    players = session.exec(select(models.Player)).all()
-    logger.info(f"Successfully connected to DB and found {len(players)} players.")
-    return {
-        "message": "Database connection successful",
-        "players_count": len(players),
-    }
