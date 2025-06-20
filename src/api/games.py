@@ -168,19 +168,16 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
     )
     session.add(new_score)
 
-    # Get total number of players in the game
     total_players = session.scalar(
         select(func.count(models.GamePlayer.id)).where(models.GamePlayer.game_id == game_id)
     )
     
-    # Get total number of categories
     total_categories = len(possible_scores)
     
     # Check if this is the last turn (all players have filled all categories)
     winner_id = None
     if game.turn >= (total_players * total_categories) - 1:
         # Get all scores for all players in this game in one query
-        # We need to include the just-added score, so we flush the session
         session.flush()
         all_scores = session.exec(
             select(models.Score)
@@ -196,15 +193,13 @@ async def create_score(game_id: int, player_id: int, request: CreateScoreRequest
         
         # Find winner
         max_score = 0
-        winner_id = -1 # Default to -1 if no winner found
         for p_id, total_score in player_scores.items():
             if total_score > max_score:
                 max_score = total_score
                 winner_id = p_id
 
-        if winner_id != -1:
-            game.winner_id = winner_id
-            logger.info(f"Game {game_id} has ended. Winner is player {winner_id}.")
+        game.winner_id = winner_id
+        logger.info(f"Game {game_id} has ended. Winner is player {winner_id}.")
 
     game.turn += 1
     
