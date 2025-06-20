@@ -49,6 +49,12 @@ class CreateScoreRequest(BaseModel):
 class CreateScoreResponse(BaseModel):
     winnerId: List[int] = []
 
+@router.get("", response_model=List[GameResponse])
+async def get_games(session: Session = Depends(get_session)):
+    """Get all games"""
+    games = session.exec(select(models.Game)).all()
+    return games
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_game(request: CreateGameRequest, session: Session = Depends(get_session)):
     """Create a new game with the provided players"""
