@@ -39,7 +39,10 @@ class Game(SQLModel, table=True):
     winner_id: Optional[int] = Field(default=None, foreign_key="player.id", description="ID of the winning player")
     
     winner: Optional["Player"] = Relationship(back_populates="won_games")
-    players: List["GamePlayer"] = Relationship(back_populates="game")
+    players: List["GamePlayer"] = Relationship(
+        back_populates="game",
+        sa_relationship_kwargs={"order_by": "GamePlayer.order"}
+    )
     scores: List["Score"] = Relationship(back_populates="game")
 
 
@@ -49,6 +52,7 @@ class GamePlayer(SQLModel, table=True):
     
     game_id: int = Field(foreign_key="game.id", description="ID of the game")
     player_id: int = Field(foreign_key="player.id", description="ID of the player")
+    order: int = Field(default=0, description="Order of the player in the game")
     
     game: "Game" = Relationship(back_populates="players")
     player: "Player" = Relationship(back_populates="games")

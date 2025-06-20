@@ -68,10 +68,9 @@ async def create_game(request: CreateGameRequest, session: Session = Depends(get
     session.flush()
     
     # Associate players with the game - batch insert
-    game_players = [
-        models.GamePlayer(game_id=new_game.id, player_id=player.id)
-        for player in existing_players
-    ]
+    game_players = []
+    for i, player in enumerate(request.players):
+        game_players.append(models.GamePlayer(game_id=new_game.id, player_id=player.id, order=i))
     session.add_all(game_players)
     
     logger.info(f"New game created with id: {new_game.id}")
@@ -115,6 +114,7 @@ async def get_game(game_id: int, session: Session = Depends(get_session)):
         player_data = {
             "id": player.id,
             "name": player.name,
+            "order": game_player.order,
             **{score: None for score in possible_scores.keys()}
         }
         
