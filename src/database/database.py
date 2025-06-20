@@ -1,4 +1,5 @@
 from datetime import datetime
+import random
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -47,6 +48,9 @@ def create_default_players(session: Session):
         base_date = datetime.now()
         ivans_games = []  # Track Iván's games to add score later
         
+        # Get a list of all player IDs to choose from
+        all_player_ids = [p.id for p in created_players.values()]
+        
         for player_data in players_with_wins:
             player_name = player_data["name"]
             wins_needed = player_data["wins"]
@@ -66,11 +70,23 @@ def create_default_players(session: Session):
                 session.add(game)
                 session.flush()
                 
+                # Add the winner as a player
                 game_player = GamePlayer(
                     game_id=game.id,
                     player_id=player.id
                 )
                 session.add(game_player)
+                
+                # Add 4 other random players for it to count in the ranking
+                other_players = [pid for pid in all_player_ids if pid != player.id]
+                random_players = random.sample(other_players, 4)
+                
+                for player_id in random_players:
+                    game_player = GamePlayer(
+                        game_id=game.id,
+                        player_id=player_id
+                    )
+                    session.add(game_player)
                 
                 # Track Iván's games for score creation
                 if player_name == "Iván":
@@ -89,11 +105,23 @@ def create_default_players(session: Session):
                 session.add(game)
                 session.flush()
                 
+                # Add the winner as a player
                 game_player = GamePlayer(
                     game_id=game.id,
                     player_id=player.id
                 )
                 session.add(game_player)
+                
+                # Add 4 other random players for it to count in the ranking
+                other_players = [pid for pid in all_player_ids if pid != player.id]
+                random_players = random.sample(other_players, 4)
+                
+                for player_id in random_players:
+                    game_player = GamePlayer(
+                        game_id=game.id,
+                        player_id=player_id
+                    )
+                    session.add(game_player)
         
         # Add score of 214 to Iván's first game in category "1"
         if ivans_games:

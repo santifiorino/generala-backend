@@ -36,8 +36,18 @@ class RankingResponse(BaseModel):
 def get_wins_ranking(session: Session) -> List[dict]:
     """Get players ranked by number of wins, sorted from high to low"""
     logger.info("Fetching wins ranking")
+
+    # Subquery to count players per game, only including games with more than 4 players
+    player_count_sq = (
+        select(
+            models.GamePlayer.game_id,
+        )
+        .group_by(models.GamePlayer.game_id)
+        .having(func.count(models.GamePlayer.player_id) > 4)
+        .subquery()
+    )
     
-    # Calculate wins at the database level to allow for sorting
+    # Calculate wins at the database level for valid games
     # A win is 2 points if generala_servida is true, 1 otherwise
     wins_subquery = (
         select(
@@ -46,6 +56,7 @@ def get_wins_ranking(session: Session) -> List[dict]:
                 case((models.Game.generala_servida, 2), else_=1)
             ).label("total_wins")
         )
+        .join(player_count_sq, models.Game.id == player_count_sq.c.game_id)
         .where(models.Game.winner_id.isnot(None))
         .group_by(models.Game.winner_id)
         .subquery()
