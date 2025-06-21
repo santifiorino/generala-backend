@@ -1,4 +1,4 @@
-from fastapi import HTTPException, status, Header
+from fastapi import Header, HTTPException, status
 from sqlmodel import Session, select
 
 from src.config import settings

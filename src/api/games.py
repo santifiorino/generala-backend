@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,9 +7,9 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
 from src.api.utils import adjust_datetime
-from src.api.validation import (verify_token, validate_category, validate_player_exists,
+from src.api.validation import (validate_category, validate_player_exists,
                                 validate_player_in_game, validate_score,
-                                validate_score_not_exists)
+                                validate_score_not_exists, verify_token)
 from src.database import models
 from src.database.database import get_session
 from src.database.models import possible_scores
@@ -101,8 +102,9 @@ def _create_game_response(game: models.Game) -> GameResponse:
 @router.get("", response_model=List[GameResponse])
 async def get_games(session: Session = Depends(get_session)):
     """Get all games"""
+    cutoff_date = datetime(2025, 6, 21, 0, 0) # Day of release
     games = session.exec(
-        select(models.Game).order_by(models.Game.created_at.desc()).options(
+        select(models.Game).where(models.Game.created_at >= cutoff_date).order_by(models.Game.created_at.desc()).options(
             selectinload(models.Game.players).selectinload(models.GamePlayer.player),
             selectinload(models.Game.scores)
         )
@@ -324,7 +326,5 @@ async def delete_score(game_id: int, player_id: int, category: models.Category, 
     
     return
    
-
-
 
 

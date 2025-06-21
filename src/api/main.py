@@ -1,18 +1,16 @@
 import logging
 import time
 
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session, select
 
 from src.api.errors import http_exception_handler, sqlalchemy_exception_handler
 from src.api.games import router as games_router
 from src.api.players import router as players_router
 from src.api.rankings import router as rankings_router
 from src.config import settings
-from src.database import models  # Import models to register them with SQLModel
-from src.database.database import create_db_and_tables, get_session
+from src.database.database import create_db_and_tables
 from src.logging_config import setup_logging
 
 logger = logging.getLogger("generala")

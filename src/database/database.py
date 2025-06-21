@@ -1,5 +1,5 @@
-from datetime import datetime
 import random
+from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
