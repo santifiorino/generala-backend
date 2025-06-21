@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import case
 from sqlmodel import Session, func, select
 
+from src.api.utils import adjust_datetime
 from src.api.validation import verify_token
 from src.database import models
 from src.database.database import get_session
@@ -162,7 +163,7 @@ def get_generalas_servidas(session: Session) -> List[dict]:
         {
             "id": game.id,
             "winnerName": game.winner.name if game.winner else "N/A",
-            "createdAt": game.created_at
+            "createdAt": adjust_datetime(game.created_at)
         }
         for game in games
     ]

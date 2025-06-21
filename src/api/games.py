@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
+from src.api.utils import adjust_datetime
 from src.api.validation import (verify_token, validate_category, validate_player_exists,
                                 validate_player_in_game, validate_score,
                                 validate_score_not_exists)
@@ -82,7 +83,7 @@ def _create_game_response(game: models.Game) -> GameResponse:
             category=score.category,
             score=score.score,
             playerId=score.player_id,
-            createdAt=score.created_at.isoformat()
+            createdAt=adjust_datetime(score.created_at).isoformat()
         )
         for score in sorted_scores
     ]
@@ -93,7 +94,7 @@ def _create_game_response(game: models.Game) -> GameResponse:
         turn=game.turn,
         winnerId=game.winner_id,
         generalaServida=game.generala_servida,
-        createdAt=game.created_at.isoformat(),
+        createdAt=adjust_datetime(game.created_at).isoformat(),
         scores=scores_response
     )
 
