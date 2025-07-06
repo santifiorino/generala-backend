@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import case
+from sqlalchemy import text
 from sqlmodel import Session, func, select
 
 from src.api.utils import adjust_datetime
@@ -36,7 +37,8 @@ class RankingsResponse(BaseModel):
     generalasServidas: List[GeneralasServidasResponses]
 
 def get_wins_ranking(session: Session) -> List[dict]:
-    """Get players ranked by number of wins, sorted from high to low"""
+    """Get players ranked by number of wins, sorted from high to low.
+    In case of ties, players who reached their current win total first are ranked higher."""
     logger.info("Fetching wins ranking")
 
     # Subquery to count players per game, only including games with more than 4 players
@@ -49,41 +51,68 @@ def get_wins_ranking(session: Session) -> List[dict]:
         .subquery()
     )
     
-    # Calculate wins at the database level for valid games
-    # A win is 2 points if generala_servida is true, 1 otherwise
-    wins_subquery = (
-        select(
-            models.Game.winner_id,
-            func.sum(
-                case((models.Game.generala_servida, 2), else_=1)
-            ).label("total_wins")
+    # Get all games with their winners and creation time, ordered chronologically
+    # Use raw SQL for the complex window function query
+    sql_query = text("""
+        WITH valid_games AS (
+            SELECT g.id, g.winner_id, g.created_at, g.generala_servida
+            FROM game g
+            INNER JOIN (
+                SELECT game_id
+                FROM gameplayer 
+                GROUP BY game_id 
+                HAVING COUNT(player_id) > 4
+            ) valid_game_ids ON g.id = valid_game_ids.game_id
+            WHERE g.winner_id IS NOT NULL
+            ORDER BY g.created_at
+        ),
+        running_totals AS (
+            SELECT 
+                winner_id,
+                created_at,
+                SUM(CASE WHEN generala_servida THEN 2 ELSE 1 END) 
+                    OVER (PARTITION BY winner_id ORDER BY created_at 
+                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as running_wins
+            FROM valid_games
+        ),
+        current_totals AS (
+            SELECT 
+                winner_id,
+                MAX(running_wins) as total_wins
+            FROM running_totals
+            GROUP BY winner_id
+        ),
+        first_achievement AS (
+            SELECT 
+                rt.winner_id,
+                ct.total_wins,
+                MIN(rt.created_at) as first_achieved_at
+            FROM running_totals rt
+            INNER JOIN current_totals ct ON rt.winner_id = ct.winner_id 
+                AND rt.running_wins = ct.total_wins
+            GROUP BY rt.winner_id, ct.total_wins
         )
-        .join(player_count_sq, models.Game.id == player_count_sq.c.game_id)
-        .where(models.Game.winner_id.isnot(None))
-        .group_by(models.Game.winner_id)
-        .subquery()
-    )
-
-    # Join with players to get names and sort
-    players_ranking_query = (
-        select(
-            models.Player.id,
-            models.Player.name,
-            func.coalesce(wins_subquery.c.total_wins, 0).label("wins"),
-        )
-        .outerjoin(wins_subquery, models.Player.id == wins_subquery.c.winner_id)
-        .order_by(func.coalesce(wins_subquery.c.total_wins, 0).desc())
-    )
-
-    results = session.exec(players_ranking_query).all()
+        SELECT 
+            p.id,
+            p.name,
+            COALESCE(fa.total_wins, 0) as wins,
+            fa.first_achieved_at
+        FROM player p
+        LEFT JOIN first_achievement fa ON p.id = fa.winner_id
+        ORDER BY 
+            COALESCE(fa.total_wins, 0) DESC,
+            fa.first_achieved_at ASC NULLS LAST
+    """)
+    
+    results = session.exec(sql_query).all()
     
     return [
         {
-            "id": id,
-            "name": name,
-            "wins": wins
+            "id": row.id,
+            "name": row.name,
+            "wins": row.wins
         }
-        for id, name, wins in results
+        for row in results
     ]
 
 def get_scores_ranking(session: Session) -> List[dict]:
