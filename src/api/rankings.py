@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -30,7 +30,7 @@ class GeneralasServidasResponses(BaseModel):
     createdAt: datetime
 
 class RankingsResponse(BaseModel):
-    wins: List[WinsRankingResponse]
+    wins: Dict[str, List[WinsRankingResponse]]
     scores: List[ScoreRankingResponse]
     generalasServidas: List[GeneralasServidasResponses]
 
@@ -52,26 +52,12 @@ def fetch_games_with_counts_and_winner(session: Session):
     """)
     return session.exec(sql).all()
 
-@router.get("", response_model=RankingsResponse)
-async def get_rankings(session: Session = Depends(get_session)):
-    """Get the complete ranking including wins, scores, and generalas servidas"""
-    logger.info("Fetching complete ranking with simplified logic...")
-
-    # Player id -> name mapping (used for outputs)
-    player_rows = session.exec(select(models.Player.id, models.Player.name)).all()
-    player_id_to_name = {player_id: name for player_id, name in player_rows}
-
-    # Single query: games + winner name + players count
-    game_rows = fetch_games_with_counts_and_winner(session)
-
-    # Consider only games with >= 5 players and with a winner for rankings
-    valid_games = [r for r in game_rows if (getattr(r, "players_count", 0) or 0) >= 5]
-
+def _compute_wins_ranking_for_games(games_subset, player_id_to_name):
     # ---- Wins ranking (Generala Servida counts as 2) with tie-break by first reach time ----
     # Track cumulative wins and the first timestamp each cumulative total was achieved
     cumulative_by_player = {}
     achieved_time_by_player_total = {}
-    for r in valid_games:
+    for r in games_subset:
         winner_id = getattr(r, "winner_id", None)
         if winner_id is None:
             continue
@@ -100,7 +86,32 @@ async def get_rankings(session: Session = Depends(get_session)):
             )
         )
     wins_entries.sort(key=lambda pair: (-pair[0]["wins"], pair[1] or datetime.max, pair[0]["name"]))
-    wins_ranking = [entry for entry, _ in wins_entries]
+    return [entry for entry, _ in wins_entries]
+
+@router.get("", response_model=RankingsResponse)
+async def get_rankings(session: Session = Depends(get_session)):
+    """Get the complete ranking including wins, scores, and generalas servidas"""
+    logger.info("Fetching complete ranking with simplified logic...")
+
+    # Player id -> name mapping (used for outputs)
+    player_rows = session.exec(select(models.Player.id, models.Player.name)).all()
+    player_id_to_name = {player_id: name for player_id, name in player_rows}
+
+    # Single query: games + winner name + players count
+    game_rows = fetch_games_with_counts_and_winner(session)
+
+    # Consider only games with >= 5 players and with a winner for rankings
+    valid_games = [r for r in game_rows if (getattr(r, "players_count", 0) or 0) >= 5]
+
+    # General wins ranking
+    wins_general = _compute_wins_ranking_for_games(valid_games, player_id_to_name)
+
+    # Yearly wins rankings from 2025 to current year inclusive
+    current_year = datetime.now().year
+    wins_by_year: Dict[str, List[dict]] = {"general": wins_general}
+    for year in range(2025, current_year + 1):
+        year_games = [r for r in valid_games if getattr(r, "created_at").year == year]
+        wins_by_year[str(year)] = _compute_wins_ranking_for_games(year_games, player_id_to_name)
 
     # ---- Generalas Servidas list ----
     generalas_servidas = [
@@ -150,7 +161,7 @@ async def get_rankings(session: Session = Depends(get_session)):
     logger.info("Successfully fetched all rankings (simplified).")
 
     return {
-        "wins": wins_ranking,
+        "wins": wins_by_year,
         "scores": scores_ranking,
         "generalasServidas": generalas_servidas,
     }
