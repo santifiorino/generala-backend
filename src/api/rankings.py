@@ -67,26 +67,40 @@ async def get_rankings(session: Session = Depends(get_session)):
     # Consider only games with >= 5 players and with a winner for rankings
     valid_games = [r for r in game_rows if (getattr(r, "players_count", 0) or 0) >= 5]
 
-    # ---- Wins ranking (Generala Servida counts as 2) ----
-    wins_by_player = {player_id: 0 for player_id in player_id_to_name.keys()}
+    # ---- Wins ranking (Generala Servida counts as 2) with tie-break by first reach time ----
+    # Track cumulative wins and the first timestamp each cumulative total was achieved
+    cumulative_by_player = {}
+    achieved_time_by_player_total = {}
     for r in valid_games:
         winner_id = getattr(r, "winner_id", None)
         if winner_id is None:
             continue
         is_generala_servida = bool(getattr(r, "generala_servida", False))
-        wins_by_player[winner_id] = wins_by_player.get(winner_id, 0) + (2 if is_generala_servida else 1)
+        increment = 2 if is_generala_servida else 1
+        new_total = cumulative_by_player.get(winner_id, 0) + increment
+        cumulative_by_player[winner_id] = new_total
+        per_player = achieved_time_by_player_total.get(winner_id)
+        if per_player is None:
+            per_player = {}
+            achieved_time_by_player_total[winner_id] = per_player
+        if new_total not in per_player:
+            per_player[new_total] = getattr(r, "created_at")
 
-    wins_ranking = sorted(
-        (
-            {
-                "id": pid,
-                "name": player_id_to_name.get(pid, "N/A"),
-                "wins": wins,
-            }
-            for pid, wins in wins_by_player.items()
-        ),
-        key=lambda x: (-x["wins"], x["name"]),
-    )
+    wins_by_player = {player_id: 0 for player_id in player_id_to_name.keys()}
+    wins_by_player.update(cumulative_by_player)
+
+    wins_entries = []
+    for pid, name in player_id_to_name.items():
+        wins = wins_by_player.get(pid, 0)
+        achieved_at = achieved_time_by_player_total.get(pid, {}).get(wins) if wins > 0 else None
+        wins_entries.append(
+            (
+                {"id": pid, "name": name, "wins": wins},
+                achieved_at,
+            )
+        )
+    wins_entries.sort(key=lambda pair: (-pair[0]["wins"], pair[1] or datetime.max, pair[0]["name"]))
+    wins_ranking = [entry for entry, _ in wins_entries]
 
     # ---- Generalas Servidas list ----
     generalas_servidas = [
