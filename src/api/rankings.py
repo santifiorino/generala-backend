@@ -3,10 +3,8 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import case
 from sqlalchemy import text
-from sqlmodel import Session, func, select
+from sqlmodel import Session, select
 
 from src.api.utils import adjust_datetime
 from src.api.validation import verify_token
@@ -36,180 +34,109 @@ class RankingsResponse(BaseModel):
     scores: List[ScoreRankingResponse]
     generalasServidas: List[GeneralasServidasResponses]
 
-def get_wins_ranking(session: Session) -> List[dict]:
-    """Get players ranked by number of wins, sorted from high to low.
-    In case of ties, players who reached their current win total first are ranked higher."""
-    logger.info("Fetching wins ranking")
-
-    # Subquery to count players per game, only including games with more than 4 players
-    player_count_sq = (
-        select(
-            models.GamePlayer.game_id,
-        )
-        .group_by(models.GamePlayer.game_id)
-        .having(func.count(models.GamePlayer.player_id) > 4)
-        .subquery()
-    )
-    
-    # Get all games with their winners and creation time, ordered chronologically
-    # Use raw SQL for the complex window function query
-    sql_query = text("""
-        WITH valid_games AS (
-            SELECT g.id, g.winner_id, g.created_at, g.generala_servida
-            FROM game g
-            INNER JOIN (
-                SELECT game_id
-                FROM gameplayer 
-                GROUP BY game_id 
-                HAVING COUNT(player_id) > 4
-            ) valid_game_ids ON g.id = valid_game_ids.game_id
-            WHERE g.winner_id IS NOT NULL
-            ORDER BY g.created_at
-        ),
-        running_totals AS (
-            SELECT 
-                winner_id,
-                created_at,
-                SUM(CASE WHEN generala_servida THEN 2 ELSE 1 END) 
-                    OVER (PARTITION BY winner_id ORDER BY created_at 
-                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as running_wins
-            FROM valid_games
-        ),
-        current_totals AS (
-            SELECT 
-                winner_id,
-                MAX(running_wins) as total_wins
-            FROM running_totals
-            GROUP BY winner_id
-        ),
-        first_achievement AS (
-            SELECT 
-                rt.winner_id,
-                ct.total_wins,
-                MIN(rt.created_at) as first_achieved_at
-            FROM running_totals rt
-            INNER JOIN current_totals ct ON rt.winner_id = ct.winner_id 
-                AND rt.running_wins = ct.total_wins
-            GROUP BY rt.winner_id, ct.total_wins
-        )
+def fetch_games_with_counts_and_winner(session: Session):
+    """Fetch all games with winner name and players count in a single simple query."""
+    sql = text("""
         SELECT 
-            p.id,
-            p.name,
-            COALESCE(fa.total_wins, 0) as wins,
-            fa.first_achieved_at
-        FROM player p
-        LEFT JOIN first_achievement fa ON p.id = fa.winner_id
-        ORDER BY 
-            COALESCE(fa.total_wins, 0) DESC,
-            fa.first_achieved_at ASC NULLS LAST
+            g.id AS id,
+            g.winner_id AS winner_id,
+            g.created_at AS created_at,
+            g.generala_servida AS generala_servida,
+            p.name AS winner_name,
+            COUNT(gp.id) AS players_count
+        FROM game g
+        LEFT JOIN player p ON p.id = g.winner_id
+        LEFT JOIN gameplayer gp ON gp.game_id = g.id
+        GROUP BY g.id, g.winner_id, g.created_at, g.generala_servida, p.name
+        ORDER BY g.created_at ASC
     """)
-    
-    results = session.exec(sql_query).all()
-    
-    return [
-        {
-            "id": row.id,
-            "name": row.name,
-            "wins": row.wins
-        }
-        for row in results
-    ]
-
-def get_scores_ranking(session: Session) -> List[dict]:
-    """Get players ranked by max total score in a single game, sorted from high to low"""
-    logger.info("Fetching score ranking")
-
-    # Subquery to count players per game, only including games with more than 4 players
-    player_count_sq = (
-        select(
-            models.GamePlayer.game_id,
-        )
-        .group_by(models.GamePlayer.game_id)
-        .having(func.count(models.GamePlayer.player_id) > 4)
-        .subquery()
-    )
-
-    # Subquery to calculate total score per game for each player, only for valid games
-    subquery = (
-        select(
-            models.Score.player_id,
-            models.Score.game_id,
-            func.sum(models.Score.score).label("total_score"),
-        )
-        .join(player_count_sq, models.Score.game_id == player_count_sq.c.game_id)
-        .group_by(models.Score.player_id, models.Score.game_id)
-        .subquery()
-    )
-
-    # Main query to find the max score for each player
-    score_rankings_query = (
-        select(
-            models.Player.id,
-            models.Player.name,
-            func.max(subquery.c.total_score).label("max_score"),
-        )
-        .join(subquery, models.Player.id == subquery.c.player_id)
-        .group_by(models.Player.id, models.Player.name)
-        .order_by(func.max(subquery.c.total_score).desc())
-    )
-    
-    results = session.exec(score_rankings_query).all()
-    logger.info(f"Found {len(results)} players for score ranking.")
-    
-    return [
-        {
-            "id": id,
-            "name": name,
-            "maxScore": max_score if max_score is not None else 0
-        }
-        for id, name, max_score in results
-    ]
-
-def get_generalas_servidas(session: Session) -> List[dict]:
-    """Get all games with generala servida, ordered by creation date"""
-    logger.info("Fetching generalas servidas")
-    
-    # Subquery to count players per game, only including games with more than 4 players
-    player_count_sq = (
-        select(
-            models.GamePlayer.game_id,
-        )
-        .group_by(models.GamePlayer.game_id)
-        .having(func.count(models.GamePlayer.player_id) > 4)
-        .subquery()
-    )
-    
-    games = session.exec(
-        select(models.Game)
-        .options(selectinload(models.Game.winner))
-        .join(player_count_sq, models.Game.id == player_count_sq.c.game_id)
-        .where(models.Game.generala_servida == True)
-        .order_by(models.Game.created_at.asc())
-    ).all()
-    
-    logger.info(f"Found {len(games)} games with generala servida.")
-    return [
-        {
-            "id": game.id,
-            "winnerName": game.winner.name if game.winner else "N/A",
-            "createdAt": adjust_datetime(game.created_at)
-        }
-        for game in games
-    ]
+    return session.exec(sql).all()
 
 @router.get("", response_model=RankingsResponse)
 async def get_rankings(session: Session = Depends(get_session)):
     """Get the complete ranking including wins, scores, and generalas servidas"""
-    logger.info("Fetching complete ranking...")
-    
-    wins_ranking = get_wins_ranking(session)
-    scores_ranking = get_scores_ranking(session)
-    generalas_servidas = get_generalas_servidas(session)
-    
-    logger.info("Successfully fetched all rankings.")
-    
+    logger.info("Fetching complete ranking with simplified logic...")
+
+    # Player id -> name mapping (used for outputs)
+    player_rows = session.exec(select(models.Player.id, models.Player.name)).all()
+    player_id_to_name = {player_id: name for player_id, name in player_rows}
+
+    # Single query: games + winner name + players count
+    game_rows = fetch_games_with_counts_and_winner(session)
+
+    # Consider only games with >= 5 players and with a winner for rankings
+    valid_games = [r for r in game_rows if (getattr(r, "players_count", 0) or 0) >= 5]
+
+    # ---- Wins ranking (Generala Servida counts as 2) ----
+    wins_by_player = {player_id: 0 for player_id in player_id_to_name.keys()}
+    for r in valid_games:
+        winner_id = getattr(r, "winner_id", None)
+        if winner_id is None:
+            continue
+        is_generala_servida = bool(getattr(r, "generala_servida", False))
+        wins_by_player[winner_id] = wins_by_player.get(winner_id, 0) + (2 if is_generala_servida else 1)
+
+    wins_ranking = sorted(
+        (
+            {
+                "id": pid,
+                "name": player_id_to_name.get(pid, "N/A"),
+                "wins": wins,
+            }
+            for pid, wins in wins_by_player.items()
+        ),
+        key=lambda x: (-x["wins"], x["name"]),
+    )
+
+    # ---- Generalas Servidas list ----
+    generalas_servidas = [
+        {
+            "id": getattr(r, "id"),
+            "winnerName": player_id_to_name.get(getattr(r, "winner_id", None), "N/A"),
+            "createdAt": adjust_datetime(getattr(r, "created_at")),
+        }
+        for r in valid_games
+        if bool(getattr(r, "generala_servida", False)) and getattr(r, "winner_id", None) is not None
+    ]
+    generalas_servidas.sort(key=lambda x: x["createdAt"])
+
+    # ---- Scores ranking (max total score by player in a single valid game) ----
+    valid_game_ids = [getattr(r, "id") for r in valid_games]
+    scores_ranking: List[dict] = []
+    if valid_game_ids:
+        score_rows = session.exec(
+            select(models.Score.player_id, models.Score.game_id, models.Score.score).where(
+                models.Score.game_id.in_(valid_game_ids)
+            )
+        ).all()
+
+        total_by_player_game = {}
+        for player_id, game_id, score in score_rows:
+            key = (player_id, game_id)
+            total_by_player_game[key] = total_by_player_game.get(key, 0) + (score or 0)
+
+        max_by_player = {}
+        for (player_id, _game_id), total in total_by_player_game.items():
+            current_max = max_by_player.get(player_id, 0)
+            if total > current_max:
+                max_by_player[player_id] = total
+
+        scores_ranking = sorted(
+            (
+                {
+                    "id": pid,
+                    "name": player_id_to_name.get(pid, "N/A"),
+                    "maxScore": max_score,
+                }
+                for pid, max_score in max_by_player.items()
+            ),
+            key=lambda x: (-x["maxScore"], x["name"]),
+        )
+
+    logger.info("Successfully fetched all rankings (simplified).")
+
     return {
         "wins": wins_ranking,
         "scores": scores_ranking,
-        "generalasServidas": generalas_servidas
+        "generalasServidas": generalas_servidas,
     }
