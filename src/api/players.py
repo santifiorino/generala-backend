@@ -21,6 +21,8 @@ class PlayerResponse(BaseModel):
 async def get_players(session: Session = Depends(get_session)):
     """Get a list of all players."""
     logger.info("Fetching all players.")
-    players = session.exec(select(models.Player)).all()
+    players = session.exec(
+        select(models.Player).where(models.Player.is_guest == False)
+    ).all()
     logger.info(f"Found {len(players)} players.")
-    return players 
+    return players

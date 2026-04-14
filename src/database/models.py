@@ -9,10 +9,8 @@ from sqlmodel import Field, Relationship, SQLModel
 class Player(SQLModel, table=True):
     """Represents a player in the game."""
     id: Optional[int] = Field(default=None, primary_key=True, description="Player's unique ID")
-    name: str = Field(
-        description="Player's name",
-        sa_column_kwargs={"unique": True}
-    )
+    name: str = Field(description="Player's name")
+    is_guest: bool = Field(default=False, description="Whether this is a guest player")
     
     won_games: List["Game"] = Relationship(back_populates="winner")
     games: List["GamePlayer"] = Relationship(back_populates="player")
@@ -53,6 +51,7 @@ class GamePlayer(SQLModel, table=True):
     game_id: int = Field(foreign_key="game.id", description="ID of the game")
     player_id: int = Field(foreign_key="player.id", description="ID of the player")
     order: int = Field(default=0, description="Order of the player in the game")
+    is_guest: bool = Field(default=False, description="Whether this player is a guest in this game")
     
     game: "Game" = Relationship(back_populates="players")
     player: "Player" = Relationship(back_populates="games")

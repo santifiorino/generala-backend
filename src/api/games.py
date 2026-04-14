@@ -19,8 +19,9 @@ router = APIRouter(prefix="/games", tags=["games"], dependencies=[Depends(verify
 
 # Request and Response models
 class PlayerRequest(BaseModel):
-    id: int
+    id: int | None = None
     name: str
+    isGuest: bool = False
 
 class CreateGameRequest(BaseModel):
     players: List[PlayerRequest]
@@ -66,6 +67,7 @@ def _create_game_response(game: models.Game) -> GameResponse:
             "id": player.id,
             "name": player.name,
             "order": game_player.order,
+            "isGuest": game_player.is_guest,
             **{category.value: None for category in models.Category}
         }
         
@@ -122,32 +124,64 @@ async def create_game(request: CreateGameRequest, session: Session = Depends(get
             detail="At least 2 players are required to create a game"
         )
     
-    # Validate that all players exist in the database
-    player_ids = [player.id for player in request.players]
-    existing_players = session.exec(
-        select(models.Player).where(models.Player.id.in_(player_ids))
-    ).all()
+    # Validate that all defined (non-guest) players exist in the database
+    defined_players = [p for p in request.players if not p.isGuest]
+    defined_ids = [p.id for p in defined_players]
+    if defined_ids:
+        existing_players = session.exec(
+            select(models.Player).where(models.Player.id.in_(defined_ids))
+        ).all()
+        if len(existing_players) != len(defined_players):
+            logger.warning("Game creation failed: some player IDs not found in database.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Players not found in database"
+            )
     
-    if len(existing_players) != len(request.players):
-        logger.warning("Game creation failed: some player IDs not found in database.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Players not found in database"
-        )
-    
+    # Resolve a Player record for each guest.
+    # Each guest slot gets its own record so scores don't collide,
+    # even when two guests in the same game share a name.
+    resolved_guest_ids: list[int | None] = [None] * len(request.players)
+    used_guest_player_ids: set[int] = set()
+    for idx, p in enumerate(request.players):
+        if not p.isGuest:
+            continue
+        # Try to reuse an existing guest Player with the same name
+        existing_guests = session.exec(
+            select(models.Player).where(
+                models.Player.name == p.name,
+                models.Player.is_guest == True,
+            )
+        ).all()
+        reused = False
+        for eg in existing_guests:
+            if eg.id not in used_guest_player_ids:
+                resolved_guest_ids[idx] = eg.id
+                used_guest_player_ids.add(eg.id)
+                reused = True
+                break
+        if not reused:
+            new_player = models.Player(name=p.name, is_guest=True)
+            session.add(new_player)
+            session.flush()
+            resolved_guest_ids[idx] = new_player.id
+            used_guest_player_ids.add(new_player.id)
+
     # Create new game
     new_game = models.Game()
     session.add(new_game)
     session.flush()
     
-    # Associate players with the game - batch insert
+    # Associate players with the game
     game_players = []
     for i, player in enumerate(request.players):
-        game_players.append(models.GamePlayer(game_id=new_game.id, player_id=player.id, order=i))
+        pid = resolved_guest_ids[i] if player.isGuest else player.id
+        game_players.append(models.GamePlayer(
+            game_id=new_game.id, player_id=pid, order=i, is_guest=player.isGuest
+        ))
     session.add_all(game_players)
     
     logger.info(f"New game created with id: {new_game.id}")
-    # Return the created game with player information
     return {
         "id": new_game.id,
     }

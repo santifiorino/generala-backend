@@ -1,6 +1,7 @@
 import random
 from datetime import datetime
 
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from src.config import settings
@@ -139,9 +140,36 @@ def create_default_players(session: Session):
     else:
         logger.info(f"Database already has {len(existing_players)} players.")
 
+def _run_migrations():
+    """Add columns and adjust constraints that may be missing from older schemas."""
+    inspector = inspect(engine)
+    migrations = [
+        ("player", "is_guest", "ALTER TABLE player ADD COLUMN is_guest BOOLEAN DEFAULT 0"),
+        ("gameplayer", "is_guest", "ALTER TABLE gameplayer ADD COLUMN is_guest BOOLEAN DEFAULT 0"),
+    ]
+    with engine.begin() as conn:
+        for table, column, ddl in migrations:
+            if table in inspector.get_table_names():
+                cols = [c["name"] for c in inspector.get_columns(table)]
+                if column not in cols:
+                    conn.execute(text(ddl))
+                    logger.info(f"Migration: added {column} to {table}")
+
+        # Drop the unique constraint on player.name so guests can share names
+        if "player" in inspector.get_table_names():
+            unique_constraints = inspector.get_unique_constraints("player")
+            for uc in unique_constraints:
+                if "name" in uc.get("column_names", []):
+                    try:
+                        conn.execute(text(f"DROP INDEX IF EXISTS \"{uc['name']}\""))
+                        logger.info(f"Migration: dropped unique constraint {uc['name']} on player.name")
+                    except Exception:
+                        logger.warning("Could not drop unique constraint on player.name; may need manual fix")
+
 def create_db_and_tables():
     """Create database and tables."""
     SQLModel.metadata.create_all(engine)
+    _run_migrations()
     logger.info("Database and tables created or verified successfully!")
     
     with Session(engine) as session:
