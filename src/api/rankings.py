@@ -57,8 +57,8 @@ def fetch_games_with_counts_and_winner(session: Session):
             g.generala_servida AS generala_servida,
             p.name AS winner_name,
             COUNT(gp.id) AS players_count,
-            SUM(CASE WHEN gp.is_guest = 0 THEN 1 ELSE 0 END) AS defined_players_count,
-            COALESCE(winner_gp.is_guest, 0) AS winner_is_guest
+            SUM(CASE WHEN gp.is_guest = FALSE THEN 1 ELSE 0 END) AS defined_players_count,
+            COALESCE(winner_gp.is_guest, FALSE) AS winner_is_guest
         FROM game g
         LEFT JOIN player p ON p.id = g.winner_id
         LEFT JOIN gameplayer gp ON gp.game_id = g.id
