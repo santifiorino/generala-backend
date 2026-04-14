@@ -144,8 +144,8 @@ def _run_migrations():
     """Add columns and adjust constraints that may be missing from older schemas."""
     inspector = inspect(engine)
     migrations = [
-        ("player", "is_guest", "ALTER TABLE player ADD COLUMN is_guest BOOLEAN DEFAULT 0"),
-        ("gameplayer", "is_guest", "ALTER TABLE gameplayer ADD COLUMN is_guest BOOLEAN DEFAULT 0"),
+        ("player", "is_guest", "ALTER TABLE player ADD COLUMN is_guest BOOLEAN DEFAULT FALSE"),
+        ("gameplayer", "is_guest", "ALTER TABLE gameplayer ADD COLUMN is_guest BOOLEAN DEFAULT FALSE"),
     ]
     with engine.begin() as conn:
         for table, column, ddl in migrations:
@@ -161,7 +161,10 @@ def _run_migrations():
             for uc in unique_constraints:
                 if "name" in uc.get("column_names", []):
                     try:
-                        conn.execute(text(f"DROP INDEX IF EXISTS \"{uc['name']}\""))
+                        if settings.DB_TYPE == "sqlite":
+                            conn.execute(text(f"DROP INDEX IF EXISTS \"{uc['name']}\""))
+                        else:
+                            conn.execute(text(f"ALTER TABLE player DROP CONSTRAINT \"{uc['name']}\""))
                         logger.info(f"Migration: dropped unique constraint {uc['name']} on player.name")
                     except Exception:
                         logger.warning("Could not drop unique constraint on player.name; may need manual fix")
